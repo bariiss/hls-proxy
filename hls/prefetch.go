@@ -6,10 +6,9 @@ import (
 	"runtime"
 	"time"
 
-	http_retry "github.com/bariiss/hls-proxy/http_retry"
+	"github.com/bariiss/hls-proxy/http_retry"
 	"github.com/bariiss/hls-proxy/model"
 	mapset "github.com/deckarep/golang-set/v2"
-	cmap "github.com/orcaman/concurrent-map/v2"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -62,13 +61,13 @@ type PrefetchPlaylist struct {
 	clipRetention time.Duration
 	playlistId    string
 	playlistClips []string
-	clipToIndex   cmap.ConcurrentMap[string, int]
-	fetchedClips  cmap.ConcurrentMap[string, CacheItem[[]byte]]
+	clipToIndex   *concurrentMap[string, int]
+	fetchedClips  *concurrentMap[string, CacheItem[[]byte]]
 }
 
 func newPrefetchPlaylist(playlistId string, playlistClips []string, clipRetention time.Duration) *PrefetchPlaylist {
-	clipToIndex := cmap.New[int]()
-	fetchedClips := cmap.New[CacheItem[[]byte]]()
+	clipToIndex := newConcurrentMap[string, int]()
+	fetchedClips := newConcurrentMap[string, CacheItem[[]byte]]()
 
 	for index, clip := range playlistClips {
 		clipToIndex.Set(clip, index)
@@ -130,6 +129,11 @@ func (m PrefetchPlaylist) addClip(clipUrl string, data []byte) {
 		Data:       data,
 		Expiration: expires,
 	})
+
+	if err := SaveSegment(m.playlistId, clipUrl, data); err != nil {
+		log.Warn("Failed to persist segment ", clipUrl, ": ", err)
+	}
+	SaveSegmentCache(m.playlistId, clipUrl, data)
 }
 
 /*
@@ -140,7 +144,7 @@ type Prefetcher struct {
 	janitor              *Janitor
 	clipPrefetchCount    int
 	currentlyPrefetching mapset.Set[string]
-	playlistInfo         cmap.ConcurrentMap[string, CacheItem[*PrefetchPlaylist]]
+	playlistInfo         *concurrentMap[string, CacheItem[*PrefetchPlaylist]]
 	playlistRetention    time.Duration
 	clipRetention        time.Duration
 }
@@ -149,20 +153,15 @@ func (p Prefetcher) GetFetchedClip(playlistId string, clipUrl string) ([]byte, b
 	playlistItem, ok := p.playlistInfo.Get(playlistId)
 
 	if !ok {
-
 		return nil, false
 	}
 
 	playlist := playlistItem.Data
-
 	data, foundClip := playlist.fetchedClips.Get(clipUrl)
-
 	clipIndex, foundIndex := playlist.clipToIndex.Get(clipUrl)
 
 	if foundIndex {
-
 		firstClip := math.Min(float64(clipIndex+1), float64(len(playlist.playlistClips)-1))
-
 		go p.prefetchClips(playlist.playlistClips[int(firstClip)], playlistId)
 	}
 
@@ -171,14 +170,30 @@ func (p Prefetcher) GetFetchedClip(playlistId string, clipUrl string) ([]byte, b
 	} else {
 		return data.Data, ok
 	}
-
 }
 
 func (p Prefetcher) AddPlaylistToCache(playlistId string, clipUrls []string) {
 	log.Debug("Adding playlist to cache ", playlistId)
 	expires := time.Now().Add(p.playlistRetention)
+	newPlaylist := newPrefetchPlaylist(playlistId, clipUrls, p.clipRetention)
+
+	existingItem, ok := p.playlistInfo.Get(playlistId)
+	if ok {
+		existing := existingItem.Data
+		clipSet := make(map[string]struct{}, len(clipUrls))
+		for _, clip := range clipUrls {
+			clipSet[clip] = struct{}{}
+		}
+
+		for clip, item := range existing.fetchedClips.Items() {
+			if _, keep := clipSet[clip]; keep {
+				newPlaylist.fetchedClips.Set(clip, item)
+			}
+		}
+	}
+
 	p.playlistInfo.Set(playlistId, CacheItem[*PrefetchPlaylist]{
-		Data:       newPrefetchPlaylist(playlistId, clipUrls, p.clipRetention),
+		Data:       newPlaylist,
 		Expiration: expires,
 	})
 }
@@ -191,37 +206,33 @@ func (p Prefetcher) prefetchClips(clipUrl string, playlistId string) error {
 	}
 
 	playlist := playlistItem.Data
-
 	nextClips := playlist.getNextPrefetchClips(clipUrl, p.clipPrefetchCount)
 
 	throttle := time.NewTicker(time.Second / time.Duration(model.Configuration.Throttle))
 	defer throttle.Stop()
 	for _, clip := range nextClips {
 		//if we are already in the process of fetching the clip, or we already have it cached, skip it
-
 		if p.currentlyPrefetching.Contains(clip) || playlist.fetchedClips.Has(clip) {
-
 			continue
 		}
-		p.currentlyPrefetching.Add(clip)
 
+		p.currentlyPrefetching.Add(clip)
 		<-throttle.C
 
 		go func(clip string) {
-
 			data, err := fetchClip(clip)
-
 			if err != nil {
 				log.Debug("Error fetching clip ", clip, err)
 				p.currentlyPrefetching.Remove(clip)
 				return
 			}
 			log.Debug("Fetched clip ", clip)
+
 			p.currentlyPrefetching.Remove(clip)
 			playlist.addClip(clip, data)
+
 			log.Debug("Number of cached clips", playlist.fetchedClips.Count())
 		}(clip)
-
 	}
 
 	return nil
@@ -240,6 +251,7 @@ func fetchClip(clipUrl string) ([]byte, error) {
 		log.Error("Error fetching clip ", clipUrl, err)
 		return nil, err
 	}
+
 	// do something with the response
 	return resp, nil
 }
@@ -248,7 +260,7 @@ func NewPrefetcher(clipPrefetchCount int, playlistRetention time.Duration, clipR
 	return &Prefetcher{
 		clipPrefetchCount:    clipPrefetchCount,
 		currentlyPrefetching: mapset.NewSet[string](),
-		playlistInfo:         cmap.New[CacheItem[*PrefetchPlaylist]](),
+		playlistInfo:         newConcurrentMap[string, CacheItem[*PrefetchPlaylist]](),
 		playlistRetention:    playlistRetention,
 		clipRetention:        clipRetention,
 	}
@@ -274,6 +286,14 @@ func (p *Prefetcher) Clean() {
 			playlist.Clean()
 		}
 	}
+}
+
+// RemovePlaylist discards cached data for a playlist identifier.
+func (p *Prefetcher) RemovePlaylist(playlistId string) {
+	if p == nil || playlistId == "" {
+		return
+	}
+	p.playlistInfo.Remove(playlistId)
 }
 
 func NewPrefetcherWithJanitor(clipPrefetchCount int, janitorInterval time.Duration, playlistRetention time.Duration, clipRetention time.Duration) *Prefetcher {

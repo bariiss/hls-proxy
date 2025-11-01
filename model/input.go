@@ -5,4 +5,5 @@ type Input struct {
 	Url     string
 	Referer string
 	Origin  string
+	Encoded string
 }

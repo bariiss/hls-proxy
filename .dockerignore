@@ -2,6 +2,7 @@
 .git
 .gitignore
 Dockerfile*
+segments/**
 **/*.log
 *.tmp
 *.swp

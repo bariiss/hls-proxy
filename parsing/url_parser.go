@@ -2,37 +2,51 @@ package parsing
 
 import (
 	"encoding/base64"
+	"errors"
 	"strings"
 
 	"github.com/bariiss/hls-proxy/model"
 )
 
 func ParseInputUrl(inputString string) (*model.Input, error) {
-	var out = &model.Input{}
-	decodedBytes, err := base64.StdEncoding.DecodeString(inputString)
-	parts := strings.Split(string(decodedBytes), "|")
-	parts[0] = strings.TrimSpace(parts[0])
+	// normalize input: trim whitespace, strip common proxy suffixes
+	s := strings.TrimSpace(inputString)
+	// strip trailing .ts if present (proxy appends this after the encoded string)
+	s = strings.TrimSuffix(s, ".ts")
+	// strip any trailing slash
+	s = strings.TrimRight(s, "/")
 
-	if len(parts) == 1 {
-		out.Url = parts[0]
-		return out, nil
+	decodedBytes, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, errors.New("invalid base64 input")
 	}
 
-	if len(parts) == 2 {
+	parts := strings.Split(string(decodedBytes), "|")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+
+	out := &model.Input{Encoded: s}
+	switch len(parts) {
+	case 0:
+		return nil, errors.New("empty input")
+	case 1:
+		out.Url = parts[0]
+	case 2:
 		out.Url = parts[0]
 		out.Referer = parts[1]
-		return out, nil
-	}
-
-	if len(parts) == 3 {
+	case 3:
 		out.Url = parts[0]
 		out.Referer = parts[1]
 		out.Origin = parts[2]
-		return out, nil
+	default:
+		out.Url = parts[0]
+		out.Referer = parts[1]
+		out.Origin = parts[2]
 	}
 
-	if err != nil {
-		return out, nil
+	if out.Url == "" {
+		return nil, errors.New("missing url in input")
 	}
 
 	return out, nil
