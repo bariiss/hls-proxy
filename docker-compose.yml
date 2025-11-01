@@ -5,6 +5,8 @@ services:
     environment:
       - PREFETCH=true
       - SEGMENTS=30
+      - SEGMENT_STORE=true
+      - SEGMENT_STORAGE_DIR=/app/segments
       - THROTTLE=5
       - JANITOR_INTERVAL=20s
       - ATTEMPTS=3
@@ -12,6 +14,7 @@ services:
       - PLAYLIST_RETENTION=5h
       - HOST=127.0.0.1
       - PORT=1323
+      - HEALTHCHECK=true
       - LOG_LEVEL=INFO
       - HTTP_CLIENT_TIMEOUT=60s
       - HTTP_DIAL_TIMEOUT=15s
