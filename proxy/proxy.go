@@ -5,16 +5,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bitknox/hls-proxy/encryption"
-	"github.com/bitknox/hls-proxy/hls"
-	"github.com/bitknox/hls-proxy/http_retry"
-	"github.com/bitknox/hls-proxy/model"
+	"github.com/bariiss/hls-proxy/config"
+	"github.com/bariiss/hls-proxy/encryption"
+	"github.com/bariiss/hls-proxy/hls"
+	"github.com/bariiss/hls-proxy/http_retry"
+	"github.com/bariiss/hls-proxy/model"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
 )
-
-// base useragent string
-const USER_AGENT string = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 var preFetcher *hls.Prefetcher
 
@@ -44,7 +42,13 @@ func ManifestProxy(c echo.Context, input *model.Input) error {
 	//modify m3u8 file to point to proxy
 	start := time.Now()
 	bytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
 	res, err := hls.ModifyM3u8(string(bytes), finalURL, preFetcher, input)
+	if err != nil {
+		return err
+	}
 	elapsed := time.Since(start)
 	log.Debug("Modifying manifest took ", elapsed)
 	c.Response().Status = http.StatusOK
@@ -103,8 +107,10 @@ func TsProxy(c echo.Context, input *model.Input) error {
 	log.Debug("Fetching clip from origin")
 
 	//send request to original host
-
 	resp, err := http_retry.ExecuteRetryableRequest(req, model.Configuration.Attempts)
+	if err != nil {
+		return err
+	}
 
 	//Some hls files have a content ranges for the same ts file
 	//We therefore need to make sure that this is copied over to the response
@@ -155,5 +161,5 @@ func addBaseHeaders(req *http.Request, input *model.Input) {
 	if input.Origin != "" {
 		req.Header.Add("Origin", input.Origin)
 	}
-	req.Header.Add("User-Agent", USER_AGENT)
+	req.Header.Add("User-Agent", config.Settings.UserAgent)
 }

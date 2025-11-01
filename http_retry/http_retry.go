@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/avast/retry-go"
+	"github.com/bariiss/hls-proxy/config"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -33,7 +33,7 @@ func ExecuteRetryableRequest(request *http.Request, attempts int) (*http.Respons
 			return err
 		},
 		retry.Attempts(uint(attempts)),
-		retry.Delay(time.Second*3),
+		retry.Delay(config.Settings.RetryRequestDelay),
 		retry.OnRetry(func(n uint, err error) {
 			log.Error("Retrying request after error:", err, n)
 		}),
@@ -71,7 +71,7 @@ func ExecuteRetryClipRequest(request *http.Request, attempts int) ([]byte, error
 			return err
 		},
 		retry.Attempts(uint(attempts)),
-		retry.Delay(time.Second*2),
+		retry.Delay(config.Settings.RetryClipDelay),
 		retry.OnRetry(func(n uint, err error) {
 			log.Error("Retrying request after error:", err, n)
 		}),

@@ -2,10 +2,9 @@ package parsing
 
 import (
 	"encoding/base64"
-
 	"strings"
 
-	"github.com/bitknox/hls-proxy/model"
+	"github.com/bariiss/hls-proxy/model"
 )
 
 func ParseInputUrl(inputString string) (*model.Input, error) {

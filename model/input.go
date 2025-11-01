@@ -1,10 +1,8 @@
 package model
 
-//Struct for the input parameters supported by the proxy
+// Struct for the input parameters supported by the proxy
 type Input struct {
-	Url string
-
+	Url     string
 	Referer string
-
-	Origin string
+	Origin  string
 }

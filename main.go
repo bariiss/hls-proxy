@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitknox/hls-proxy/model"
-	parsing "github.com/bitknox/hls-proxy/parsing"
-	proxy "github.com/bitknox/hls-proxy/proxy"
+	"github.com/bariiss/hls-proxy/model"
+	parsing "github.com/bariiss/hls-proxy/parsing"
+	proxy "github.com/bariiss/hls-proxy/proxy"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"

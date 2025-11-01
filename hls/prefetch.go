@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"time"
 
-	http_retry "github.com/bitknox/hls-proxy/http_retry"
-	"github.com/bitknox/hls-proxy/model"
+	http_retry "github.com/bariiss/hls-proxy/http_retry"
+	"github.com/bariiss/hls-proxy/model"
 	mapset "github.com/deckarep/golang-set/v2"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	log "github.com/sirupsen/logrus"
@@ -220,8 +220,6 @@ func (p Prefetcher) prefetchClips(clipUrl string, playlistId string) error {
 			p.currentlyPrefetching.Remove(clip)
 			playlist.addClip(clip, data)
 			log.Debug("Number of cached clips", playlist.fetchedClips.Count())
-
-			return
 		}(clip)
 
 	}
@@ -231,6 +229,10 @@ func (p Prefetcher) prefetchClips(clipUrl string, playlistId string) error {
 
 func fetchClip(clipUrl string) ([]byte, error) {
 	request, err := http.NewRequest("GET", clipUrl, nil)
+	if err != nil {
+		log.Error("Error creating request ", clipUrl, err)
+		return nil, err
+	}
 
 	resp, err := http_retry.ExecuteRetryClipRequest(request, model.Configuration.Attempts)
 
@@ -252,15 +254,15 @@ func NewPrefetcher(clipPrefetchCount int, playlistRetention time.Duration, clipR
 	}
 }
 
-func (p Prefetcher) setJanitor(j *Janitor) {
+func (p *Prefetcher) setJanitor(j *Janitor) {
 	p.janitor = j
 }
 
-func (p Prefetcher) getJanitor() *Janitor {
+func (p *Prefetcher) getJanitor() *Janitor {
 	return p.janitor
 }
 
-func (p Prefetcher) Clean() {
+func (p *Prefetcher) Clean() {
 	log.Debug("Cleaning playlist cache")
 	currentTime := time.Now()
 	for playlistId, playlistItem := range p.playlistInfo.Items() {

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/bitknox/hls-proxy/model"
+	"github.com/bariiss/hls-proxy/model"
 	"github.com/cristalhq/base64"
 )
 

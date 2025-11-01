@@ -1,37 +1,41 @@
-<h1 align="center">Go hls-proxy 📺</h1>
-
+# Go hls-proxy 📺
 
 <!-- [START BADGES] -->
 <!-- Please keep comment here to allow auto update -->
-<p align="center">
-  <a href="https://github.com/bitknox/hls-proxy/blob/master/LICENSE"><img src="https://img.shields.io/github/license/wow-actions/add-badges?style=flat-square" alt="MIT License" /></a>
-  <a href="https://go.dev/"><img src="https://img.shields.io/badge/language-golang-teal?style=flat-square" alt="Language" /></a>
-  <a href="https://github.com/bitknox/hls-proxy/pulls"><img src="https://img.shields.io/badge/PRs-Welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome" /></a>
-  <a href="https://github.com/bitknox/hls-proxy/actions/workflows/go.yml"><img src="https://img.shields.io/github/actions/workflow/status/wow-actions/add-badges/release.yml?branch=master&logo=github&style=flat-square" alt="build" /></a>
-
-</p>
+[![MIT License](https://img.shields.io/github/license/wow-actions/add-badges?style=flat-square)](https://github.com/bariiss/hls-proxy/blob/master/LICENSE)
+[![Language](https://img.shields.io/badge/language-golang-teal?style=flat-square)](https://go.dev/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen.svg?style=flat-square)](https://github.com/bariiss/hls-proxy/pulls)
+[![build](https://img.shields.io/github/actions/workflow/status/wow-actions/add-badges/release.yml?branch=master&logo=github&style=flat-square)](https://github.com/bariiss/hls-proxy/actions/workflows/go.yml)
 <!-- [END BADGES] -->
 
 ## ✏️Purpose
 
 A simple proxy server that parses m3u8 manifets and proxies all requests. This is useful for adding headers, prefetching clips or other custom logic when loading streams that cannot be modified directly at the source.
 
+## 🔧 Changes Compared to bitknox/hls-proxy
+
+- Centralized HTTP timeouts and user-agent handling in `config/config.go` with environment overrides (`HTTP_CLIENT_TIMEOUT`, `HTTP_DIAL_TIMEOUT`, `HTTP_RETRY_REQUEST_DELAY`, `HTTP_RETRY_CLIP_DELAY`, `HTTP_USER_AGENT`).
+- Fixed janitor lifecycle by switching `Prefetcher` janitor helpers to pointer receivers and ensuring `fetchClip` reports request-construction errors.
+- Updated proxy headers to read the user-agent from configuration instead of a hard-coded constant.
+- Bumped GitHub Actions workflow to the latest `actions/checkout` and `actions/setup-go` versions.
+
 ## 🏎 Getting Started
 
 ### Dependencies
 
-* [golang](https://go.dev/doc/install)
+- [golang](https://go.dev/doc/install)
 
 ### 👨‍💻Installing
 
 ```bash
-git clone https://github.com/bitknox/hls-proxy.git
+git clone https://github.com/bariiss/hls-proxy.git
 cd hls-proxy
 go install
 hls-proxy
 ```
 
 ### 📝 Usage (JS)
+
 To use the proxy, simply supply the proxy with the url in base64 as shown below. Optionally a referer and origin can be added.
 
 ```javascript
@@ -56,7 +60,7 @@ const proxiedUrl = `${proxyHost}:${proxyPort}/${btoa(input)}`
 hls-proxy h
 ```
 
-#### Overview of options
+### Overview of options
 
 ```bash
 --prefetch                  prefetch ts files (default: true)
@@ -78,13 +82,15 @@ Contributions are always welcome. This is one of my first projets in golang, so 
 
 ## 📗 Authors
 
-[@bitknox](https://github.com/bitknox)
+[@bariiss](https://github.com/bariiss)
 
 ## 🗎 Version History
 
-* 1.0
-    * Initial Release
-    * See [commit change]() or See [release history]()
+- 1.1
+  - Refactor configuration to drive HTTP settings from env overrides and document fork-specific changes
+- 1.0
+  - Initial Release
+  - See commit change or release history in the GitHub repository
 
 ## ©️ License
 
@@ -93,4 +99,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 🤚 Acknowledgments
 
 Inspiration:
-* [HLS-Proxy](https://github.com/warren-bank/HLS-Proxy) by [@warren-bank](https://github.com/warren-bank)
+
+- Forked from [bitknox/hls-proxy](https://github.com/bitknox/hls-proxy) for continued development and maintenance.
+- [HLS-Proxy](https://github.com/warren-bank/HLS-Proxy) by [@warren-bank](https://github.com/warren-bank)
