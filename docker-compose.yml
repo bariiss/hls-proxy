@@ -10,7 +10,7 @@ services:
       - ATTEMPTS=3
       - CLIP_RETENTION=30m
       - PLAYLIST_RETENTION=5h
-      - HOST=0.0.0.0
+      - HOST=127.0.0.1
       - PORT=1323
       - LOG_LEVEL=INFO
       - HTTP_CLIENT_TIMEOUT=60s
@@ -21,6 +21,8 @@ services:
     ports:
       - "1323:1323"
     restart: unless-stopped
+    volumes:
+      - ./segments:/app/segments
     healthcheck:
       test: ["CMD", "/app/hls-proxy", "-healthcheck"]
       interval: 30s

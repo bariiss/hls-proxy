@@ -10,7 +10,7 @@
 
 ## ✏️Purpose
 
-A simple proxy server that parses m3u8 manifets and proxies all requests. This is useful for adding headers, prefetching clips or other custom logic when loading streams that cannot be modified directly at the source.
+A resilient HLS proxy that rewrites manifests, prefetches and decrypts segments, and optionally caches clips in-memory or on disk so streams can be replayed—even when the origin drops segments—while letting you inject custom headers and tuning via configuration.
 
 ## 🔧 Changes Compared to bitknox/hls-proxy
 
@@ -22,6 +22,9 @@ A simple proxy server that parses m3u8 manifets and proxies all requests. This i
 - Documented Docker Compose environment variables for the new configuration knobs.
 - Bumped GitHub Actions workflow to the latest `actions/checkout` and `actions/setup-go` versions.
 - Improved Docker build workflow with dynamic repo-based image naming, default-branch `latest` tagging, and reusable platform matrices.
+- Added opt-in segment persistence: in-memory caching (`--segment-cache`) and disk-backed storage (`--segment-store` + `--segment-dir`) with per-manifest limits, idle cleanup, and graceful shutdown purging.
+- Reworked manifest processing to stabilize playback sequences, support rewinding via per-manifest histories, and purge idle manifests across cache and disk.
+- Introduced configuration-driven inactivity janitor, segment directory sanitization, and signal-based cleanup to prevent stale artifacts.
 
 ## 🏎 Getting Started
 
@@ -74,6 +77,11 @@ hls-proxy h
 --attempts value            how many times to retry a request for a ts file (default: 3)
 --clip-retention value      how long to keep ts files in cache (default: 30m0s)
 --playlist-retention value  how long to keep playlists in cache (default: 5h0m0s)
+--segment-cache             cache fetched segments in memory for replay (default: true)
+--segment-store             persist fetched segments to disk for replay (default: false)
+--segment-dir value         directory to use when segment storage is enabled (default: "./segments")
+--segment-idle-enabled      purge manifests and stored segments after idle window (default: true)
+--segment-idle-timeout value  inactivity window before cache/store cleanup (default: 20s)
 --host value                hostname to attach to proxy url
 --port value                port to attach to proxy url (default: 1323)
 --log-level value           log level (default: "PRODUCTION")
@@ -88,8 +96,16 @@ Contributions are always welcome. This is one of my first projets in golang, so 
 
 [@bariiss](https://github.com/bariiss)
 
-## 🗎 Version History
+## 📄 Version History
 
+- 1.4
+  - Switch default logging to structured JSON with middleware that records response latency, upstream transfer size, and bytes read/written
+  - Track request/response volumes inside the proxy so operators can confirm cache hits and upstream pulls
+  - Flatten conditional branches across manifest, prefetch, cache, store, retry, and parsing helpers to simplify maintenance and trim redundant code paths
+- 1.3
+  - Introduce optional in-memory segment cache, disk persistence, and manifest-aware cleanup controls with new CLI/env settings
+  - Rewrite manifest history tracking to keep replayable windows stable and purge idle playlists safely
+  - Sanitize per-manifest storage layout, ensuring graceful shutdown removes persisted data
 - 1.2
   - Extend configuration via environment/CLI overrides, add healthcheck endpoint/flag, and update Docker build & compose defaults
 - 1.1

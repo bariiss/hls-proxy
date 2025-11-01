@@ -2,7 +2,6 @@ package http_retry
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 
@@ -23,14 +22,16 @@ func ExecuteRetryableRequest(request *http.Request, attempts int) (*http.Respons
 		func() error {
 			var err error
 			resp, err = DefaultHttpClient.Do(request)
-			if resp != nil {
-				if resp.StatusCode >= 300 || resp.StatusCode < 200 {
-					fmt.Println(resp.StatusCode)
-					return errors.New("Non 2xx status code")
-				}
+			if err != nil {
+				return err
 			}
 
-			return err
+			if valid := statusOK(resp.StatusCode); !valid {
+				log.WithField("status", resp.StatusCode).Warn("non 2xx status code")
+				return errors.New("non 2xx status code")
+			}
+
+			return nil
 		},
 		retry.Attempts(uint(attempts)),
 		retry.Delay(config.Settings.RetryRequestDelay),
@@ -43,7 +44,6 @@ func ExecuteRetryableRequest(request *http.Request, attempts int) (*http.Respons
 	}
 
 	return resp, nil
-
 }
 
 func ExecuteRetryClipRequest(request *http.Request, attempts int) ([]byte, error) {
@@ -52,23 +52,21 @@ func ExecuteRetryClipRequest(request *http.Request, attempts int) ([]byte, error
 	err := retry.Do(
 		func() error {
 			resp, err := DefaultHttpClient.Do(request)
-
 			if err != nil {
 				return err
 			}
 
-			if resp.StatusCode >= 300 || resp.StatusCode < 200 {
-				return errors.New("Non 2xx status code")
+			if !statusOK(resp.StatusCode) {
+				return errors.New("non 2xx status code")
 			}
-			defer resp.Body.Close()
-			bytes, err := io.ReadAll(resp.Body)
 
+			bytes, err := readResponse(resp)
 			if err != nil {
 				return err
 			}
+
 			responseBytes = bytes
-
-			return err
+			return nil
 		},
 		retry.Attempts(uint(attempts)),
 		retry.Delay(config.Settings.RetryClipDelay),
@@ -81,5 +79,13 @@ func ExecuteRetryClipRequest(request *http.Request, attempts int) ([]byte, error
 	}
 
 	return responseBytes, nil
+}
 
+func statusOK(status int) bool {
+	return status >= 200 && status < 300
+}
+
+func readResponse(resp *http.Response) ([]byte, error) {
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
 }

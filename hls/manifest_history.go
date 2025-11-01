@@ -35,7 +35,11 @@ func getManifestHistory(key string) *manifestHistory {
 		history.touch()
 		return history
 	}
-	history = &manifestHistory{
+	return createManifestHistory(key)
+}
+
+func createManifestHistory(key string) *manifestHistory {
+	history := &manifestHistory{
 		segments:   make(map[string]*manifestSegment),
 		order:      make([]string, 0),
 		lastAccess: time.Now(),
@@ -68,24 +72,26 @@ func (h *manifestHistory) merge(entries []*manifestSegment, limit int) []*manife
 		if entry == nil || entry.ClipURL == "" {
 			continue
 		}
-		if existing, ok := h.segments[entry.ClipURL]; ok {
+		existing, ok := h.segments[entry.ClipURL]
+		if ok {
 			existing.Tags = append([]string(nil), entry.Tags...)
 			existing.Line = entry.Line
 			existing.ClipURL = entry.ClipURL
 			existing.HasKey = entry.HasKey
 			existing.DecryptionKey = entry.DecryptionKey
 			existing.IV = entry.IV
-		} else {
-			entry.Sequence = h.nextSeq
-			h.nextSeq++
-			h.segments[entry.ClipURL] = entry
-			h.order = append(h.order, entry.ClipURL)
+			continue
 		}
+
+		entry.Sequence = h.nextSeq
+		h.nextSeq++
+		h.segments[entry.ClipURL] = entry
+		h.order = append(h.order, entry.ClipURL)
 	}
 
 	if limit > 0 && len(h.order) > limit {
 		drop := len(h.order) - limit
-		for i := 0; i < drop; i++ {
+		for i := range drop {
 			clip := h.order[i]
 			delete(h.segments, clip)
 		}
@@ -145,33 +151,40 @@ func StartManifestInactivityJanitor(prefetcher *Prefetcher, ttl time.Duration) {
 		return
 	}
 	manifestJanitorOnce.Do(func() {
-		interval := ttl / 2
-		if interval < 5*time.Second {
-			interval = 5 * time.Second
-		}
+		interval := max(ttl/2, 5*time.Second)
 		ticker := time.NewTicker(interval)
 		go func() {
 			for range ticker.C {
-				cutoff := time.Now().Add(-ttl)
-				for key, history := range histories.Items() {
-					if history == nil || !history.inactiveSince(cutoff) {
-						continue
-					}
-					playlistID := history.currentPlaylistID()
-					history.reset()
-					histories.Remove(key)
-					if playlistID != "" {
-						log.Infof("Purging inactive manifest %s", playlistID)
-						if prefetcher != nil {
-							prefetcher.RemovePlaylist(playlistID)
-						}
-						if err := RemoveManifestSegments(playlistID); err != nil {
-							log.Warnf("Failed to remove persisted segments for %s: %v", playlistID, err)
-						}
-						ClearSegmentCache(playlistID)
-					}
-				}
+				purgeInactiveManifests(prefetcher, ttl)
 			}
 		}()
 	})
+}
+
+func purgeInactiveManifests(prefetcher *Prefetcher, ttl time.Duration) {
+	cutoff := time.Now().Add(-ttl)
+	for key, history := range histories.Items() {
+		if history == nil || !history.inactiveSince(cutoff) {
+			continue
+		}
+
+		playlistID := history.currentPlaylistID()
+		history.reset()
+		histories.Remove(key)
+
+		if playlistID == "" {
+			continue
+		}
+
+		log.Infof("Purging inactive manifest %s", playlistID)
+		if prefetcher != nil {
+			prefetcher.RemovePlaylist(playlistID)
+		}
+
+		if err := RemoveManifestSegments(playlistID); err != nil {
+			log.Warnf("Failed to remove persisted segments for %s: %v", playlistID, err)
+		}
+
+		ClearSegmentCache(playlistID)
+	}
 }

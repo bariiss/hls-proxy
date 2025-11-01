@@ -86,10 +86,15 @@ func (s *fileSegmentStore) enforceLimitLocked(manifestID string) {
 		return
 	}
 
-	if _, err := os.Stat(manifestRoot); errors.Is(err, os.ErrNotExist) {
+	info, statErr := os.Stat(manifestRoot)
+	if errors.Is(statErr, os.ErrNotExist) {
 		return
-	} else if err != nil {
-		log.Warnf("inspect segment directory for %s: %v", manifestID, err)
+	}
+	if statErr != nil {
+		log.Warnf("inspect segment directory for %s: %v", manifestID, statErr)
+		return
+	}
+	if !info.IsDir() {
 		return
 	}
 
@@ -121,7 +126,7 @@ func (s *fileSegmentStore) enforceLimitLocked(manifestID string) {
 	})
 
 	excess := len(files) - s.limit
-	for i := 0; i < excess; i++ {
+	for i := range excess {
 		removePath := files[i].path
 		if err := os.Remove(removePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			log.Warnf("remove stale segment %s: %v", removePath, err)
@@ -328,9 +333,9 @@ func registerCleanup() {
 			signal.Reset(os.Interrupt, syscall.SIGTERM)
 			if s, ok := sig.(syscall.Signal); ok {
 				_ = syscall.Kill(os.Getpid(), s)
-			} else {
-				os.Exit(0)
+				return
 			}
+			os.Exit(0)
 		}()
 	})
 }

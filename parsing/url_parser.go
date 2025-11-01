@@ -26,27 +26,20 @@ func ParseInputUrl(inputString string) (*model.Input, error) {
 		parts[i] = strings.TrimSpace(parts[i])
 	}
 
-	out := &model.Input{Encoded: s}
-	switch len(parts) {
-	case 0:
+	if len(parts) == 0 || parts[0] == "" {
 		return nil, errors.New("empty input")
-	case 1:
-		out.Url = parts[0]
-	case 2:
-		out.Url = parts[0]
-		out.Referer = parts[1]
-	case 3:
-		out.Url = parts[0]
-		out.Referer = parts[1]
-		out.Origin = parts[2]
-	default:
-		out.Url = parts[0]
-		out.Referer = parts[1]
-		out.Origin = parts[2]
 	}
 
-	if out.Url == "" {
-		return nil, errors.New("missing url in input")
+	out := &model.Input{
+		Encoded: s,
+		Url:     parts[0],
+	}
+
+	if len(parts) > 1 {
+		out.Referer = parts[1]
+	}
+	if len(parts) > 2 {
+		out.Origin = parts[2]
 	}
 
 	return out, nil

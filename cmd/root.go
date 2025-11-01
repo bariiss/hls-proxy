@@ -147,7 +147,7 @@ func launchServer(host string, port int) {
 	e := echo.New()
 
 	e.Use(middleware.CORS())
-	e.Use(middleware.Logger())
+	e.Use(jsonLoggerMiddleware())
 	e.Use(middleware.Recover())
 
 	e.GET("/health", handleHealth)

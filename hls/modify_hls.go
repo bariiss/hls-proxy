@@ -1,6 +1,7 @@
 package hls
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,14 +19,7 @@ import (
 var counter atomic.Int32
 var re = regexp.MustCompile(`(?i)URI=["']([^"']+)["']`)
 
-/*
-*	Very barebones m3u8 parser that will replace the URI inside the manifest with a proxy url
-*	It only supports a subset of the m3u8 tags and will not work with all m3u8 files
-*   It should probably be replaced with a proper m3u8 parser
- */
-
 func ModifyM3u8(m3u8 string, host_url *url.URL, prefetcher *Prefetcher, input *model.Input, requestHost string) (string, error) {
-
 	var newManifest = strings.Builder{}
 	var host = resolveProxyHost(requestHost)
 	manifestKey := input.Encoded
@@ -40,12 +34,11 @@ func ModifyM3u8(m3u8 string, host_url *url.URL, prefetcher *Prefetcher, input *m
 
 	parentUrl := strings.TrimSuffix(host_url.String(), "/")
 
-	masterProxyUrl := ""
+	masterProxyUrl := "http://" + host + "/"
+
 	//if user wants https, we should use it
 	if model.Configuration.UseHttps {
 		masterProxyUrl = "https://" + host + "/"
-	} else {
-		masterProxyUrl = "http://" + host + "/"
 	}
 
 	newManifest.Grow(len(m3u8))
@@ -53,172 +46,181 @@ func ModifyM3u8(m3u8 string, host_url *url.URL, prefetcher *Prefetcher, input *m
 		manifestAddr := masterProxyUrl
 		for line := range strings.SplitSeq(strings.TrimRight(m3u8, "\n"), "\n") {
 			if len(line) == 0 {
-
 				continue
 			}
+
 			if line[0] == '#' {
-				//check for known tags and use regex to replace URI inside
 				if strings.HasPrefix(line, "#EXT-X-MEDIA") {
-
 					handleUriTag(line, parentUrl, input, &newManifest, masterProxyUrl)
-				} else {
-					newManifest.WriteString(line)
+					newManifest.WriteString("\n")
+					continue
 				}
-			} else if len(strings.TrimSpace(line)) > 0 {
 
-				AddProxyUrl(manifestAddr, line, true, parentUrl, &newManifest, input)
-
+				newManifest.WriteString(line)
+				newManifest.WriteString("\n")
+				continue
 			}
+
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+
+			AddProxyUrl(manifestAddr, line, true, parentUrl, &newManifest, input)
 			newManifest.WriteString("\n")
 		}
-	} else {
-		//most likely a master playlist containing the video elements
 
-		history := getManifestHistory(manifestKey)
+		return newManifest.String(), nil
+	}
 
-		var headerLines []string
-		mediaSequenceIndex := -1
-		var decryptionKey string
-		var hasSequence bool
-		var currentSequence int
-		var currentIV int
-		var segmentTags []string
-		var newSegments []*manifestSegment
-		endList := false
+	//most likely a master playlist containing the video elements
+	history := getManifestHistory(manifestKey)
 
-		tsAddr := masterProxyUrl
+	var headerLines []string
+	mediaSequenceIndex := -1
+	var decryptionKey string
+	var hasSequence bool
+	var currentSequence int
+	var currentIV int
+	var segmentTags []string
+	var newSegments []*manifestSegment
+	endList := false
 
-		lines := strings.Split(strings.TrimRight(m3u8, "\n"), "\n")
-		for _, line := range lines {
-			if len(line) == 0 {
-				continue
-			}
+	tsAddr := masterProxyUrl
 
-			if line[0] == '#' {
-				switch {
-				case strings.HasPrefix(line, "#EXT-X-ENDLIST"):
-					endList = true
-				case strings.HasPrefix(line, "#EXT-X-MEDIA-SEQUENCE"):
-					sequenceNumber, err := strconv.Atoi(strings.Split(line, ":")[1])
-					if err != nil {
-						return "", err
-					}
-					currentSequence = sequenceNumber
-					currentIV = sequenceNumber
-					hasSequence = true
-					headerLines = append(headerLines, line)
-					mediaSequenceIndex = len(headerLines) - 1
-				case strings.HasPrefix(line, "#EXT-X-KEY") && model.Configuration.DecryptSegments:
+	lines := strings.SplitSeq(strings.TrimRight(m3u8, "\n"), "\n")
+	for line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+
+		if line[0] == '#' {
+			switch {
+			case strings.HasPrefix(line, "#EXT-X-ENDLIST"):
+				endList = true
+			case strings.HasPrefix(line, "#EXT-X-MEDIA-SEQUENCE"):
+				_, value, found := strings.Cut(line, ":")
+				if !found {
+					return "", errors.New("invalid #EXT-X-MEDIA-SEQUENCE tag")
+				}
+				sequenceNumber, err := strconv.Atoi(value)
+				if err != nil {
+					return "", err
+				}
+				currentSequence = sequenceNumber
+				currentIV = sequenceNumber
+				hasSequence = true
+				headerLines = append(headerLines, line)
+				mediaSequenceIndex = len(headerLines) - 1
+			case strings.HasPrefix(line, "#EXT-X-KEY"):
+				if model.Configuration.DecryptSegments {
 					_, proxyUrl := getUrlForEmbeddedEntry(line, parentUrl)
+					if proxyUrl == "" {
+						return "", errors.New("missing key URI")
+					}
 					resp, err := http.Get(proxyUrl)
 					if err != nil {
 						return "", err
 					}
-					defer resp.Body.Close()
 					body, err := io.ReadAll(resp.Body)
+					resp.Body.Close()
 					if err != nil {
 						return "", err
 					}
 					decryptionKey = base64.URLEncoding.EncodeToString(body)
-				case strings.HasPrefix(line, "#EXT-X-KEY"):
-					var tagBuilder strings.Builder
-					handleUriTag(line, parentUrl, input, &tagBuilder, masterProxyUrl)
-					segmentTags = append(segmentTags, tagBuilder.String())
-				case isPlaylistHeader(line):
-					headerLines = append(headerLines, line)
-				default:
-					segmentTags = append(segmentTags, line)
+					break
 				}
-				continue
-			}
 
-			if !hasSequence {
-				currentSequence = len(newSegments)
-				currentIV = currentSequence
-				hasSequence = true
+				var tagBuilder strings.Builder
+				handleUriTag(line, parentUrl, input, &tagBuilder, masterProxyUrl)
+				segmentTags = append(segmentTags, tagBuilder.String())
+			case isPlaylistHeader(line):
+				headerLines = append(headerLines, line)
+			default:
+				segmentTags = append(segmentTags, line)
 			}
-
-			entry := &manifestSegment{
-				Sequence:      currentSequence,
-				Tags:          append([]string(nil), segmentTags...),
-				Line:          line,
-				ClipURL:       joinURL(parentUrl, line),
-				HasKey:        decryptionKey != "",
-				DecryptionKey: decryptionKey,
-				IV:            currentIV,
-			}
-
-			newSegments = append(newSegments, entry)
-			if decryptionKey != "" {
-				currentIV++
-			}
-			currentSequence++
-			segmentTags = segmentTags[:0]
+			continue
 		}
 
-		combined := history.merge(newSegments, config.Settings.SegmentCount)
-
-		playlistId := history.currentPlaylistID()
-		if playlistId == "" {
-			playlistId = manifestKey
-			if playlistId == "" {
-				playlistId = strconv.Itoa(int(counter.Add(1)))
-			}
-			playlistId = history.ensurePlaylistID(playlistId)
-		}
-		strId := playlistId
-		pidParam := url.QueryEscape(strId)
-
-		clipUrls := make([]string, 0, len(combined))
-
-		if len(combined) > 0 {
-			if mediaSequenceIndex >= 0 {
-				headerLines[mediaSequenceIndex] = "#EXT-X-MEDIA-SEQUENCE:" + strconv.Itoa(combined[0].Sequence)
-			} else {
-				headerLines = append([]string{"#EXT-X-MEDIA-SEQUENCE:" + strconv.Itoa(combined[0].Sequence)}, headerLines...)
-			}
+		if !hasSequence {
+			currentSequence = len(newSegments)
+			currentIV = currentSequence
+			hasSequence = true
 		}
 
-		// ensure we always include #EXTM3U at top
-		if len(headerLines) == 0 || headerLines[0] != "#EXTM3U" {
-			headerLines = append([]string{"#EXTM3U"}, headerLines...)
+		entry := &manifestSegment{
+			Sequence:      currentSequence,
+			Tags:          append([]string(nil), segmentTags...),
+			Line:          line,
+			ClipURL:       joinURL(parentUrl, line),
+			HasKey:        decryptionKey != "",
+			DecryptionKey: decryptionKey,
+			IV:            currentIV,
 		}
 
-		for _, header := range headerLines {
-			if header == "" {
-				continue
-			}
-			newManifest.WriteString(header)
-			newManifest.WriteString("\n")
+		newSegments = append(newSegments, entry)
+		if decryptionKey != "" {
+			currentIV++
 		}
-
-		for _, entry := range combined {
-			clipUrls = append(clipUrls, entry.ClipURL)
-
-			for _, tag := range entry.Tags {
-				if tag == "" {
-					continue
-				}
-				newManifest.WriteString(tag)
-				newManifest.WriteString("\n")
-			}
-
-			AddProxyUrl(tsAddr, entry.Line, false, parentUrl, &newManifest, input)
-			newManifest.WriteString("?pId=" + pidParam)
-			if entry.HasKey {
-				newManifest.WriteString("&key=" + entry.DecryptionKey)
-				newManifest.WriteString("&iv=" + strconv.Itoa(entry.IV))
-			}
-			newManifest.WriteString("\n")
-		}
-
-		if endList {
-			newManifest.WriteString("#EXT-X-ENDLIST\n")
-		}
-
-		prefetcher.AddPlaylistToCache(strId, clipUrls)
-
+		currentSequence++
+		segmentTags = segmentTags[:0]
 	}
+
+	combined := history.merge(newSegments, config.Settings.SegmentCount)
+
+	playlistId := derivePlaylistID(history, manifestKey)
+	strId := playlistId
+	pidParam := url.QueryEscape(strId)
+
+	clipUrls := make([]string, 0, len(combined))
+
+	if len(combined) > 0 {
+		seqLine := "#EXT-X-MEDIA-SEQUENCE:" + strconv.Itoa(combined[0].Sequence)
+		if mediaSequenceIndex >= 0 {
+			headerLines[mediaSequenceIndex] = seqLine
+		}
+		if mediaSequenceIndex < 0 {
+			headerLines = append([]string{seqLine}, headerLines...)
+		}
+	}
+
+	// ensure we always include #EXTM3U at top
+	if len(headerLines) == 0 || headerLines[0] != "#EXTM3U" {
+		headerLines = append([]string{"#EXTM3U"}, headerLines...)
+	}
+
+	for _, header := range headerLines {
+		if header == "" {
+			continue
+		}
+		newManifest.WriteString(header)
+		newManifest.WriteString("\n")
+	}
+
+	for _, entry := range combined {
+		clipUrls = append(clipUrls, entry.ClipURL)
+
+		for _, tag := range entry.Tags {
+			if tag == "" {
+				continue
+			}
+			newManifest.WriteString(tag)
+			newManifest.WriteString("\n")
+		}
+
+		AddProxyUrl(tsAddr, entry.Line, false, parentUrl, &newManifest, input)
+		newManifest.WriteString("?pId=" + pidParam)
+		if entry.HasKey {
+			newManifest.WriteString("&key=" + entry.DecryptionKey)
+			newManifest.WriteString("&iv=" + strconv.Itoa(entry.IV))
+		}
+		newManifest.WriteString("\n")
+	}
+
+	if endList {
+		newManifest.WriteString("#EXT-X-ENDLIST\n")
+	}
+
+	prefetcher.AddPlaylistToCache(strId, clipUrls)
 
 	return newManifest.String(), nil
 }
@@ -232,8 +234,11 @@ func resolveProxyHost(requestHost string) string {
 }
 
 func handleUriTag(line string, parentUrl string, input *model.Input, newManifest *strings.Builder, masterProxyUrl string) {
-
 	original, proxyUrl := getUrlForEmbeddedEntry(line, parentUrl)
+	if original == "" {
+		newManifest.WriteString(line)
+		return
+	}
 
 	if input.Referer != "" {
 		proxyUrl += "|" + input.Referer
@@ -247,11 +252,15 @@ func handleUriTag(line string, parentUrl string, input *model.Input, newManifest
 
 func getUrlForEmbeddedEntry(url string, parentUrl string) (string, string) {
 	match := re.FindStringSubmatch(url)
-	if strings.HasPrefix(match[1], "http") || strings.HasPrefix(match[1], "https") {
-		return match[1], match[1]
-	} else {
-		return match[1], joinURL(parentUrl, match[1])
+	if len(match) < 2 {
+		return "", ""
 	}
+
+	uri := match[1]
+	if isAbsoluteURL(uri) {
+		return uri, uri
+	}
+	return uri, joinURL(parentUrl, uri)
 }
 
 func AddProxyUrl(baseAddr string, url string, isManifest bool, parentUrl string, builder *strings.Builder, input *model.Input) {
@@ -264,11 +273,29 @@ func AddProxyUrl(baseAddr string, url string, isManifest bool, parentUrl string,
 		proxyUrl += "|" + input.Origin
 	}
 	builder.WriteString(baseAddr)
-	if strings.HasPrefix(url, "http") || strings.HasPrefix(url, "https") {
+	if isAbsoluteURL(url) {
 		builder.WriteString(base64.StdEncoding.EncodeToString([]byte(proxyUrl)))
-	} else {
-		builder.WriteString(base64.StdEncoding.EncodeToString([]byte(joinURL(parentUrl, proxyUrl))))
+		return
 	}
+	builder.WriteString(base64.StdEncoding.EncodeToString([]byte(joinURL(parentUrl, proxyUrl))))
+}
+
+func isAbsoluteURL(u string) bool {
+	return strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://")
+}
+
+func derivePlaylistID(history *manifestHistory, manifestKey string) string {
+	current := history.currentPlaylistID()
+	if current != "" {
+		return current
+	}
+
+	seed := manifestKey
+	if seed == "" {
+		seed = strconv.Itoa(int(counter.Add(1)))
+	}
+
+	return history.ensurePlaylistID(seed)
 }
 
 func joinURL(base, rel string) string {

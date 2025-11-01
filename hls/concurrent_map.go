@@ -1,6 +1,9 @@
 package hls
 
-import "sync"
+import (
+	"maps"
+	"sync"
+)
 
 type concurrentMap[K comparable, V any] struct {
 	mu   sync.RWMutex
@@ -43,9 +46,7 @@ func (m *concurrentMap[K, V]) Items() map[K]V {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	copy := make(map[K]V, len(m.data))
-	for key, value := range m.data {
-		copy[key] = value
-	}
+	maps.Copy(copy, m.data)
 	return copy
 }
 

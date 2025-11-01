@@ -2,10 +2,6 @@ package hls
 
 import "sync"
 
-type cacheEntry struct {
-	data []byte
-}
-
 type manifestCache struct {
 	order   []string
 	entries map[string][]byte
@@ -49,12 +45,8 @@ func (c *memorySegmentCache) Save(manifestID, key string, data []byte) {
 	defer c.mu.Unlock()
 
 	manifest := c.ensureManifest(manifestID)
-	if _, exists := manifest.entries[key]; exists {
-		manifest.remove(key)
-	}
-	manifest.entries[key] = append([]byte(nil), data...)
-	manifest.order = append(manifest.order, key)
-	c.enforceLimit(manifest)
+	manifest.set(key, data)
+	manifest.evict(c.limit)
 }
 
 func (c *memorySegmentCache) Load(manifestID, key string) ([]byte, bool) {
@@ -105,26 +97,38 @@ func (c *memorySegmentCache) ensureManifest(manifestID string) *manifestCache {
 	return manifest
 }
 
-func (c *memorySegmentCache) enforceLimit(manifest *manifestCache) {
-	if c.limit <= 0 {
+func (m *manifestCache) set(key string, data []byte) {
+	m.remove(key)
+	m.entries[key] = append([]byte(nil), data...)
+	m.order = append(m.order, key)
+}
+
+func (m *manifestCache) evict(limit int) {
+	if limit <= 0 {
 		return
 	}
 
-	for len(manifest.order) > c.limit {
-		oldest := manifest.order[0]
-		manifest.order = manifest.order[1:]
-		delete(manifest.entries, oldest)
+	for len(m.order) > limit {
+		oldest := m.order[0]
+		m.order = m.order[1:]
+		delete(m.entries, oldest)
 	}
 }
 
-func (m *manifestCache) remove(key string) {
+func (m *manifestCache) remove(key string) bool {
+	if _, exists := m.entries[key]; !exists {
+		return false
+	}
+
 	delete(m.entries, key)
 	for i, existing := range m.order {
-		if existing == key {
-			m.order = append(m.order[:i], m.order[i+1:]...)
-			return
+		if existing != key {
+			continue
 		}
+		m.order = append(m.order[:i], m.order[i+1:]...)
+		return true
 	}
+	return false
 }
 
 var (
@@ -139,26 +143,20 @@ func ConfigureSegmentCache(enabled bool, limit int) {
 	defer cacheMu.Unlock()
 
 	if !enabled {
-		activeSegmentCache = noopSegmentCache{}
-		segmentCacheEnabled = false
+		setActiveCache(noopSegmentCache{}, false)
 		return
 	}
 
 	if limit < 0 {
 		limit = 0
 	}
-	activeSegmentCache = newMemorySegmentCache(limit)
-	segmentCacheEnabled = true
+	setActiveCache(newMemorySegmentCache(limit), true)
 }
 
 // SaveSegmentCache stores the provided bytes in the active in-memory cache, if enabled.
 func SaveSegmentCache(manifestID, key string, data []byte) {
-	cacheMu.RLock()
-	cache := activeSegmentCache
-	enabled := segmentCacheEnabled
-	cacheMu.RUnlock()
-
-	if !enabled {
+	cache, ok := activeCache()
+	if !ok {
 		return
 	}
 	cache.Save(manifestID, key, data)
@@ -166,6 +164,37 @@ func SaveSegmentCache(manifestID, key string, data []byte) {
 
 // LoadSegmentCache retrieves cached bytes for the given manifest and key.
 func LoadSegmentCache(manifestID, key string) ([]byte, bool) {
+	cache, ok := activeCache()
+	if !ok {
+		return nil, false
+	}
+	return cache.Load(manifestID, key)
+}
+
+// ClearSegmentCache removes all cached entries associated with the manifest.
+func ClearSegmentCache(manifestID string) {
+	cache, ok := activeCache()
+	if !ok {
+		return
+	}
+	cache.Remove(manifestID)
+}
+
+// ResetSegmentCache discards all in-memory cached segments.
+func ResetSegmentCache() {
+	cache, ok := activeCache()
+	if !ok {
+		return
+	}
+	cache.Reset()
+}
+
+func setActiveCache(store segmentCacheStore, enabled bool) {
+	activeSegmentCache = store
+	segmentCacheEnabled = enabled
+}
+
+func activeCache() (segmentCacheStore, bool) {
 	cacheMu.RLock()
 	cache := activeSegmentCache
 	enabled := segmentCacheEnabled
@@ -174,31 +203,5 @@ func LoadSegmentCache(manifestID, key string) ([]byte, bool) {
 	if !enabled {
 		return nil, false
 	}
-	return cache.Load(manifestID, key)
-}
-
-// ClearSegmentCache removes all cached entries associated with the manifest.
-func ClearSegmentCache(manifestID string) {
-	cacheMu.RLock()
-	cache := activeSegmentCache
-	enabled := segmentCacheEnabled
-	cacheMu.RUnlock()
-
-	if !enabled {
-		return
-	}
-	cache.Remove(manifestID)
-}
-
-// ResetSegmentCache discards all in-memory cached segments.
-func ResetSegmentCache() {
-	cacheMu.RLock()
-	cache := activeSegmentCache
-	enabled := segmentCacheEnabled
-	cacheMu.RUnlock()
-
-	if !enabled {
-		return
-	}
-	cache.Reset()
+	return cache, true
 }

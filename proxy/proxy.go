@@ -12,10 +12,18 @@ import (
 	"github.com/bariiss/hls-proxy/http_retry"
 	"github.com/bariiss/hls-proxy/model"
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/gommon/log"
+	log "github.com/sirupsen/logrus"
 )
 
 var preFetcher *hls.Prefetcher
+
+// simpleCounterWriter counts bytes written to it (used with io.TeeReader)
+type simpleCounterWriter struct{ n int64 }
+
+func (w *simpleCounterWriter) Write(p []byte) (int, error) {
+	w.n += int64(len(p))
+	return len(p), nil
+}
 
 func InitPrefetcher(c *model.Config) {
 	preFetcher = hls.NewPrefetcherWithJanitor(c.SegmentCount, c.JanitorInterval, c.PlaylistRetention, c.ClipRetention)
@@ -40,30 +48,31 @@ func ManifestProxy(c echo.Context, input *model.Input) error {
 	if err != nil {
 		return err
 	}
-
 	addBaseHeaders(req, input)
 
-	//send request to proxy
 	resp, err := http_retry.ExecuteRetryableRequest(req, 3)
-
 	if err != nil {
 		return err
 	}
-
 	defer resp.Body.Close()
-	//add referer and origin headers if applicable
 
 	finalURL := resp.Request.URL
-	//modify m3u8 file to point to proxy
+
 	start := time.Now()
+
 	bytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
+
+	// record upstream manifest size for logging
+	c.Set("bytes_upstream", int64(len(bytes)))
+
 	res, err := hls.ModifyM3u8(string(bytes), finalURL, preFetcher, input, c.Request().Host)
 	if err != nil {
 		return err
 	}
+
 	elapsed := time.Since(start)
 	log.Debug("Modifying manifest took ", elapsed)
 	c.Response().Status = http.StatusOK
@@ -156,7 +165,7 @@ func TsProxy(c echo.Context, input *model.Input) error {
 		c.Response().Writer.Header().Set("Content-Range", resp.Header.Get("Content-Range"))
 	}
 
-	contentType := setContentTypeHeader(c, input.Url, resp.Header.Get("Content-Type"))
+	setContentTypeHeader(c, input.Url, resp.Header.Get("Content-Type"))
 
 	readBody := decryptionKey != "" || (model.Configuration.SegmentCache && rangeHeader == "") || model.Configuration.SegmentStore
 	if readBody {
@@ -165,6 +174,9 @@ func TsProxy(c echo.Context, input *model.Input) error {
 			log.Error("Error reading segment ", err)
 			return err
 		}
+
+		// record upstream segment size for logging
+		c.Set("bytes_upstream", int64(len(rawData)))
 		if model.Configuration.SegmentStore && rangeHeader == "" {
 			if err := hls.SaveSegment(manifestID, input.Url, rawData); err != nil {
 				log.Warn("Failed to persist segment from origin: ", err)
@@ -184,7 +196,16 @@ func TsProxy(c echo.Context, input *model.Input) error {
 		return nil
 	}
 
-	c.Stream(resp.StatusCode, contentType, resp.Body)
+	// When not reading the body into memory, stream and count upstream bytes
+	cw := &simpleCounterWriter{}
+	tee := io.TeeReader(resp.Body, cw)
+	// copy to response writer so our countingResponseWriter captures bytes_out
+	if _, err := io.Copy(c.Response().Writer, tee); err != nil {
+		resp.Body.Close()
+		return err
+	}
+	resp.Body.Close()
+	c.Set("bytes_upstream", cw.n)
 	return nil
 }
 
