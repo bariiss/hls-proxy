@@ -1,0 +1,33 @@
+services:
+  hls-proxy:
+    image: ghcr.io/bariiss/hls-proxy:latest
+    container_name: hls-proxy
+    environment:
+      - PREFETCH=true
+      - SEGMENTS=30
+      - THROTTLE=5
+      - JANITOR_INTERVAL=20s
+      - ATTEMPTS=3
+      - CLIP_RETENTION=30m
+      - PLAYLIST_RETENTION=5h
+      - HOST=0.0.0.0
+      - PORT=1323
+      - LOG_LEVEL=INFO
+      - HTTP_CLIENT_TIMEOUT=60s
+      - HTTP_DIAL_TIMEOUT=15s
+      - HTTP_RETRY_REQUEST_DELAY=3s
+      - HTTP_RETRY_CLIP_DELAY=2s
+      - HTTP_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+    ports:
+      - "1323:1323"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/hls-proxy", "-healthcheck"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+networks:
+  default:
+    name: hls-proxy-net

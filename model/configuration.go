@@ -3,6 +3,7 @@ package model
 import (
 	"time"
 
+	"github.com/bariiss/hls-proxy/config"
 	"github.com/urfave/cli/v2"
 )
 
@@ -25,17 +26,53 @@ type Config struct {
 }
 
 func InitializeConfig(c *cli.Context) {
-	Configuration = Config{
-		Prefetch:          c.Bool("prefetch"),
-		SegmentCount:      c.Int("segments"),
-		Throttle:          c.Int("throttle"),
-		Attempts:          c.Int("attempts"),
-		ClipRetention:     c.Duration("clip-retention"),
-		PlaylistRetention: c.Duration("playlist-retention"),
-		JanitorInterval:   c.Duration("janitor-interval"),
-		DecryptSegments:   c.Bool("decrypt"),
-		UseHttps:          c.Bool("https"),
-		Host:              c.String("host"),
-		Port:              c.String("port"),
+	cfg := Config{
+		Prefetch:          config.Settings.Prefetch,
+		SegmentCount:      config.Settings.SegmentCount,
+		Throttle:          config.Settings.Throttle,
+		Attempts:          config.Settings.Attempts,
+		ClipRetention:     config.Settings.ClipRetention,
+		PlaylistRetention: config.Settings.PlaylistRetention,
+		JanitorInterval:   config.Settings.JanitorInterval,
+		DecryptSegments:   config.Settings.DecryptSegments,
+		UseHttps:          config.Settings.UseHTTPS,
+		Host:              config.Settings.Host,
+		Port:              config.Settings.Port,
 	}
+
+	if c.IsSet("prefetch") {
+		cfg.Prefetch = c.Bool("prefetch")
+	}
+	if c.IsSet("segments") {
+		cfg.SegmentCount = c.Int("segments")
+	}
+	if c.IsSet("throttle") {
+		cfg.Throttle = c.Int("throttle")
+	}
+	if c.IsSet("attempts") {
+		cfg.Attempts = c.Int("attempts")
+	}
+	if c.IsSet("clip-retention") {
+		cfg.ClipRetention = c.Duration("clip-retention")
+	}
+	if c.IsSet("playlist-retention") {
+		cfg.PlaylistRetention = c.Duration("playlist-retention")
+	}
+	if c.IsSet("janitor-interval") {
+		cfg.JanitorInterval = c.Duration("janitor-interval")
+	}
+	if c.IsSet("decrypt") {
+		cfg.DecryptSegments = c.Bool("decrypt")
+	}
+	if c.IsSet("https") {
+		cfg.UseHttps = c.Bool("https")
+	}
+	if c.IsSet("host") {
+		cfg.Host = c.String("host")
+	}
+	if c.IsSet("port") {
+		cfg.Port = c.String("port")
+	}
+
+	Configuration = cfg
 }

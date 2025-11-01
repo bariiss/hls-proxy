@@ -15,9 +15,13 @@ A simple proxy server that parses m3u8 manifets and proxies all requests. This i
 ## 🔧 Changes Compared to bitknox/hls-proxy
 
 - Centralized HTTP timeouts and user-agent handling in `config/config.go` with environment overrides (`HTTP_CLIENT_TIMEOUT`, `HTTP_DIAL_TIMEOUT`, `HTTP_RETRY_REQUEST_DELAY`, `HTTP_RETRY_CLIP_DELAY`, `HTTP_USER_AGENT`).
+- Routed all CLI defaults (prefetch behaviour, cache retention, host/port, log level, HTTPS/decrypt flags) through environment-backed settings for easier container configuration.
 - Fixed janitor lifecycle by switching `Prefetcher` janitor helpers to pointer receivers and ensuring `fetchClip` reports request-construction errors.
 - Updated proxy headers to read the user-agent from configuration instead of a hard-coded constant.
+- Added a `/health` endpoint plus a `-healthcheck` flag so containers can perform liveness checks without starting the full server.
+- Documented Docker Compose environment variables for the new configuration knobs.
 - Bumped GitHub Actions workflow to the latest `actions/checkout` and `actions/setup-go` versions.
+- Improved Docker build workflow with dynamic repo-based image naming, default-branch `latest` tagging, and reusable platform matrices.
 
 ## 🏎 Getting Started
 
@@ -86,6 +90,8 @@ Contributions are always welcome. This is one of my first projets in golang, so 
 
 ## 🗎 Version History
 
+- 1.2
+  - Extend configuration via environment/CLI overrides, add healthcheck endpoint/flag, and update Docker build & compose defaults
 - 1.1
   - Refactor configuration to drive HTTP settings from env overrides and document fork-specific changes
 - 1.0

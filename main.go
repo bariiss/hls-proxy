@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
-	"time"
 
+	"github.com/bariiss/hls-proxy/config"
 	"github.com/bariiss/hls-proxy/model"
 	parsing "github.com/bariiss/hls-proxy/parsing"
 	proxy "github.com/bariiss/hls-proxy/proxy"
@@ -23,37 +25,37 @@ func main() {
 			&cli.BoolFlag{
 				Name:  "prefetch",
 				Usage: "prefetch ts files",
-				Value: true,
+				Value: config.Settings.Prefetch,
 			},
 			&cli.IntFlag{
 				Name:  "segments",
 				Usage: "how many segments to prefetch",
-				Value: 30,
+				Value: config.Settings.SegmentCount,
 			},
 			&cli.IntFlag{
 				Name:  "throttle",
 				Usage: "how much to throttle prefetch requests (requests per second)",
-				Value: 5,
+				Value: config.Settings.Throttle,
 			},
 			&cli.DurationFlag{
 				Name:  "janitor-interval",
 				Usage: "how often should the janitor clean the cache",
-				Value: 20 * time.Second,
+				Value: config.Settings.JanitorInterval,
 			},
 			&cli.IntFlag{
 				Name:  "attempts",
 				Usage: "how many times to retry a request for a ts file",
-				Value: 10,
+				Value: config.Settings.Attempts,
 			},
 			&cli.DurationFlag{
 				Name:  "clip-retention",
 				Usage: "how long to keep ts files in cache",
-				Value: 30 * time.Minute,
+				Value: config.Settings.ClipRetention,
 			},
 			&cli.DurationFlag{
 				Name:  "playlist-retention",
 				Usage: "how long to keep playlists in cache",
-				Value: 5 * time.Hour,
+				Value: config.Settings.PlaylistRetention,
 			},
 			&cli.BoolFlag{
 				Name:  "https",
@@ -61,15 +63,14 @@ func main() {
 				Value: false,
 			},
 			&cli.StringFlag{
-
 				Name:  "host",
 				Usage: "hostname to attach to proxy url",
-				Value: "",
+				Value: config.Settings.Host,
 			},
 			&cli.StringFlag{
 				Name:  "port",
 				Usage: "port to attach to proxy url",
-				Value: "1323",
+				Value: config.Settings.Port,
 			},
 			&cli.BoolFlag{
 				Name:  "decrypt",
@@ -79,16 +80,30 @@ func main() {
 			&cli.StringFlag{
 				Name:  "log-level",
 				Usage: "log level",
-				Value: "PRODUCTION",
+				Value: config.Settings.LogLevel,
+			},
+			&cli.BoolFlag{
+				Name:  "healthcheck",
+				Usage: "run healthcheck and exit",
+				Value: false,
 			},
 		},
 		Name:  "hls-proxy",
 		Usage: "start hls proxy server",
 		Action: func(c *cli.Context) error {
 			model.InitializeConfig(c)
+			if c.Bool("healthcheck") {
+				return runHealthcheck()
+			}
 			proxy.InitPrefetcher(&model.Configuration)
 			fmt.Printf("%v", model.Configuration)
-			launch_server("", c.Int("port"), c.String("log-level"))
+			host := c.String("host")
+			portStr := c.String("port")
+			portInt, err := strconv.Atoi(portStr)
+			if err != nil {
+				return fmt.Errorf("invalid port %q: %w", portStr, err)
+			}
+			launch_server(host, portInt, c.String("log-level"))
 			return nil
 		},
 	}
@@ -116,12 +131,38 @@ func launch_server(host string, port int, logLevel string) {
 	e.Use(middleware.Recover())
 
 	// Routes
+	e.GET("/health", handleHealth)
 	e.GET("/:input", handle_request)
 
 	// Start server
 
 	e.Logger.Fatal(e.Start(fmt.Sprintf("%s:%d", host, port)))
 
+}
+
+func handleHealth(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func runHealthcheck() error {
+	host := model.Configuration.Host
+	if host == "" || host == "0.0.0.0" {
+		host = "127.0.0.1"
+	}
+	port := model.Configuration.Port
+	if port == "" {
+		port = "1323"
+	}
+	url := fmt.Sprintf("http://%s:%s/health", host, port)
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("healthcheck failed: status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func handle_request(c echo.Context) error {

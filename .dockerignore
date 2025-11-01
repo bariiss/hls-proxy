@@ -1,0 +1,8 @@
+# Keep context small & deterministic
+.git
+.gitignore
+Dockerfile*
+**/*.log
+*.tmp
+*.swp
+*.out

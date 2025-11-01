@@ -129,7 +129,6 @@ func TsProxy(c echo.Context, input *model.Input) error {
 	defer resp.Body.Close()
 
 	//if we need to decrypt the segment, do it here
-
 	if decryptionKey != "" {
 
 		data, err := io.ReadAll(resp.Body)
