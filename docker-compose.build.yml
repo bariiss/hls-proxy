@@ -1,7 +1,9 @@
 services:
   hls-proxy:
-    image: ghcr.io/bariiss/hls-proxy:v1.4
-    container_name: hls-proxy
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hls-proxy-build
     environment:
       - HOST=0.0.0.0
       - PORT=1323

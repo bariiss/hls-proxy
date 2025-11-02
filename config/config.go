@@ -64,6 +64,17 @@ func load() Values {
 	}
 }
 
+func getDuration(envKey string, fallback time.Duration) time.Duration {
+	if value := os.Getenv(envKey); value != "" {
+		if parsed, err := time.ParseDuration(value); err == nil {
+			return parsed
+		}
+		log.Warnf("Invalid duration provided for %s: %s. Falling back to default %s", envKey, value, fallback)
+	}
+
+	return fallback
+}
+
 func getSegmentStoreFlag() bool {
 	if value := os.Getenv("SEGMENT_STORE"); value != "" {
 		parsed, err := strconv.ParseBool(value)
@@ -85,19 +96,7 @@ func getSegmentCacheFlag() bool {
 			return parsed
 		}
 	}
-	// legacy compatibility with CACHE_SEGMENTS env, default true to leverage in-memory caching
 	return getBool("CACHE_SEGMENTS", true)
-}
-
-func getDuration(envKey string, fallback time.Duration) time.Duration {
-	if value := os.Getenv(envKey); value != "" {
-		if parsed, err := time.ParseDuration(value); err == nil {
-			return parsed
-		}
-		log.Warnf("Invalid duration provided for %s: %s. Falling back to default %s", envKey, value, fallback)
-	}
-
-	return fallback
 }
 
 func getString(envKey, fallback string) string {

@@ -51,6 +51,11 @@ var (
 	flagValues struct {
 		prefetch           bool
 		segments           int
+		segmentStore       bool
+		segmentCache       bool
+		segmentDir         string
+		segmentIdle        time.Duration
+		segmentIdleEnabled bool
 		throttle           int
 		janitor            time.Duration
 		attempts           int
@@ -62,17 +67,17 @@ var (
 		port               string
 		logLevel           string
 		healthcheck        bool
-		segmentStore       bool
-		segmentCache       bool
-		segmentDir         string
-		segmentIdle        time.Duration
-		segmentIdleEnabled bool
 	}
 )
 
 func init() {
 	rootCmd.Flags().BoolVar(&flagValues.prefetch, "prefetch", config.Settings.Prefetch, "Prefetch TS segments before they are requested")
 	rootCmd.Flags().IntVar(&flagValues.segments, "segments", config.Settings.SegmentCount, "Number of segments to prefetch")
+	rootCmd.Flags().BoolVar(&flagValues.segmentStore, "segment-store", config.Settings.SegmentStore, "Persist fetched segments to disk for replay")
+	rootCmd.Flags().BoolVar(&flagValues.segmentCache, "segment-cache", config.Settings.SegmentCache, "Cache fetched segments in memory for replay")
+	rootCmd.Flags().StringVar(&flagValues.segmentDir, "segment-dir", config.Settings.SegmentStorageDir, "Directory for persisted segments when segment storage is enabled")
+	rootCmd.Flags().DurationVar(&flagValues.segmentIdle, "segment-idle-timeout", config.Settings.SegmentIdleTimeout, "Duration with no requests before manifest cache and stored segments are purged")
+	rootCmd.Flags().BoolVar(&flagValues.segmentIdleEnabled, "segment-idle-enabled", config.Settings.SegmentIdleEnabled, "Enable purging manifests and stored segments after periods of inactivity")
 	rootCmd.Flags().IntVar(&flagValues.throttle, "throttle", config.Settings.Throttle, "Requests per second limit for prefetching")
 	rootCmd.Flags().DurationVar(&flagValues.janitor, "janitor-interval", config.Settings.JanitorInterval, "Interval for cleaning cached playlists and clips")
 	rootCmd.Flags().IntVar(&flagValues.attempts, "attempts", config.Settings.Attempts, "Retry attempts for segment fetches")
@@ -83,12 +88,7 @@ func init() {
 	rootCmd.Flags().StringVar(&flagValues.host, "host", defaultHost(config.Settings.Host), "Host address to bind and advertise in rewritten manifests")
 	rootCmd.Flags().StringVar(&flagValues.port, "port", config.Settings.Port, "Port to bind the HTTP server")
 	rootCmd.Flags().StringVar(&flagValues.logLevel, "log-level", strings.ToUpper(config.Settings.LogLevel), "Log level (DEBUG, INFO, WARN, ERROR)")
-	rootCmd.Flags().BoolVar(&flagValues.healthcheck, "healthcheck", false, "Run healthcheck against the configured server and exit")
-	rootCmd.Flags().BoolVar(&flagValues.segmentStore, "segment-store", config.Settings.SegmentStore, "Persist fetched segments to disk for replay")
-	rootCmd.Flags().BoolVar(&flagValues.segmentCache, "segment-cache", config.Settings.SegmentCache, "Cache fetched segments in memory for replay")
-	rootCmd.Flags().StringVar(&flagValues.segmentDir, "segment-dir", config.Settings.SegmentStorageDir, "Directory for persisted segments when segment storage is enabled")
-	rootCmd.Flags().DurationVar(&flagValues.segmentIdle, "segment-idle-timeout", config.Settings.SegmentIdleTimeout, "Duration with no requests before manifest cache and stored segments are purged")
-	rootCmd.Flags().BoolVar(&flagValues.segmentIdleEnabled, "segment-idle-enabled", config.Settings.SegmentIdleEnabled, "Enable purging manifests and stored segments after periods of inactivity")
+	rootCmd.Flags().BoolVar(&flagValues.healthcheck, "healthcheck", config.Settings.Healthcheck, "Run healthcheck against the configured server and exit")
 }
 
 func Execute() error {
@@ -104,6 +104,11 @@ func applyConfiguration() error {
 	options := model.ConfigInit{
 		Prefetch:           flagValues.prefetch,
 		SegmentCount:       flagValues.segments,
+		SegmentStore:       flagValues.segmentStore,
+		SegmentCache:       flagValues.segmentCache,
+		SegmentStorageDir:  flagValues.segmentDir,
+		SegmentIdleEnabled: flagValues.segmentIdleEnabled,
+		SegmentIdleTimeout: flagValues.segmentIdle,
 		Throttle:           flagValues.throttle,
 		Attempts:           flagValues.attempts,
 		ClipRetention:      flagValues.clipRetention,
@@ -115,11 +120,6 @@ func applyConfiguration() error {
 		Port:               flagValues.port,
 		LogLevel:           flagValues.logLevel,
 		Healthcheck:        flagValues.healthcheck,
-		SegmentStore:       flagValues.segmentStore,
-		SegmentCache:       flagValues.segmentCache,
-		SegmentStorageDir:  flagValues.segmentDir,
-		SegmentIdleEnabled: flagValues.segmentIdleEnabled,
-		SegmentIdleTimeout: flagValues.segmentIdle,
 	}
 
 	model.InitializeConfig(options)
