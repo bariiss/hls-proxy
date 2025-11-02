@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bariiss/hls-proxy/model"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -18,12 +19,13 @@ type manifestSegment struct {
 }
 
 type manifestHistory struct {
-	mu         sync.Mutex
-	playlistID string
-	segments   map[string]*manifestSegment
-	order      []string
-	lastAccess time.Time
-	nextSeq    int
+	mu                sync.Mutex
+	playlistID        string
+	segments          map[string]*manifestSegment
+	order             []string
+	lastAccess        time.Time
+	nextSeq           int
+	segmentsRequested bool
 }
 
 var histories = newConcurrentMap[string, *manifestHistory]()
@@ -133,6 +135,20 @@ func (h *manifestHistory) reset() {
 	h.playlistID = ""
 	h.lastAccess = time.Time{}
 	h.nextSeq = 0
+	h.segmentsRequested = false
+}
+
+func (h *manifestHistory) markSegmentRequested() {
+	h.mu.Lock()
+	h.lastAccess = time.Now()
+	h.segmentsRequested = true
+	h.mu.Unlock()
+}
+
+func (h *manifestHistory) hasServedSegments() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.segmentsRequested
 }
 
 // TouchManifest refreshes the last-access time for a manifest history if it exists.
@@ -143,6 +159,14 @@ func TouchManifest(key string) {
 	if history, ok := histories.Get(key); ok {
 		history.touch()
 	}
+}
+
+func RecordSegmentRequest(key string) {
+	if key == "" {
+		return
+	}
+	history := getManifestHistory(key)
+	history.markSegmentRequested()
 }
 
 // StartManifestInactivityJanitor purges inactive manifests and their persisted segments.
@@ -165,6 +189,10 @@ func purgeInactiveManifests(prefetcher *Prefetcher, ttl time.Duration) {
 	cutoff := time.Now().Add(-ttl)
 	for key, history := range histories.Items() {
 		if history == nil || !history.inactiveSince(cutoff) {
+			continue
+		}
+
+		if model.Configuration.SegmentIdleRequireSegments && !history.hasServedSegments() {
 			continue
 		}
 

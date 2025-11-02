@@ -222,6 +222,10 @@ func ModifyM3u8(m3u8 string, host_url *url.URL, prefetcher *Prefetcher, input *m
 
 	prefetcher.AddPlaylistToCache(strId, clipUrls)
 
+	if model.Configuration.SegmentBackgroundFetch && prefetcher != nil {
+		prefetcher.WarmPlaylist(strId)
+	}
+
 	return newManifest.String(), nil
 }
 

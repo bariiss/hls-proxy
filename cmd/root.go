@@ -49,24 +49,26 @@ var (
 	}
 
 	flagValues struct {
-		prefetch           bool
-		segments           int
-		segmentStore       bool
-		segmentCache       bool
-		segmentDir         string
-		segmentIdle        time.Duration
-		segmentIdleEnabled bool
-		throttle           int
-		janitor            time.Duration
-		attempts           int
-		clipRetention      time.Duration
-		playlistRet        time.Duration
-		https              bool
-		decrypt            bool
-		host               string
-		port               string
-		logLevel           string
-		healthcheck        bool
+		prefetch                   bool
+		segments                   int
+		segmentStore               bool
+		segmentCache               bool
+		segmentDir                 string
+		segmentIdle                time.Duration
+		segmentIdleEnabled         bool
+		segmentIdleRequireSegments bool
+		segmentBackgroundFetch     bool
+		throttle                   int
+		janitor                    time.Duration
+		attempts                   int
+		clipRetention              time.Duration
+		playlistRet                time.Duration
+		https                      bool
+		decrypt                    bool
+		host                       string
+		port                       string
+		logLevel                   string
+		healthcheck                bool
 	}
 )
 
@@ -78,6 +80,8 @@ func init() {
 	rootCmd.Flags().StringVar(&flagValues.segmentDir, "segment-dir", config.Settings.SegmentStorageDir, "Directory for persisted segments when segment storage is enabled")
 	rootCmd.Flags().DurationVar(&flagValues.segmentIdle, "segment-idle-timeout", config.Settings.SegmentIdleTimeout, "Duration with no requests before manifest cache and stored segments are purged")
 	rootCmd.Flags().BoolVar(&flagValues.segmentIdleEnabled, "segment-idle-enabled", config.Settings.SegmentIdleEnabled, "Enable purging manifests and stored segments after periods of inactivity")
+	rootCmd.Flags().BoolVar(&flagValues.segmentIdleRequireSegments, "segment-idle-require-segments", config.Settings.SegmentIdleRequireSegments, "Require at least one segment request before idle cleanup can purge cached manifests")
+	rootCmd.Flags().BoolVar(&flagValues.segmentBackgroundFetch, "segment-background-fetch", config.Settings.SegmentBackgroundFetch, "Enable proactive background fetching of playlist segments for cache warming")
 	rootCmd.Flags().IntVar(&flagValues.throttle, "throttle", config.Settings.Throttle, "Requests per second limit for prefetching")
 	rootCmd.Flags().DurationVar(&flagValues.janitor, "janitor-interval", config.Settings.JanitorInterval, "Interval for cleaning cached playlists and clips")
 	rootCmd.Flags().IntVar(&flagValues.attempts, "attempts", config.Settings.Attempts, "Retry attempts for segment fetches")
@@ -102,24 +106,26 @@ func applyConfiguration() error {
 	}
 
 	options := model.ConfigInit{
-		Prefetch:           flagValues.prefetch,
-		SegmentCount:       flagValues.segments,
-		SegmentStore:       flagValues.segmentStore,
-		SegmentCache:       flagValues.segmentCache,
-		SegmentStorageDir:  flagValues.segmentDir,
-		SegmentIdleEnabled: flagValues.segmentIdleEnabled,
-		SegmentIdleTimeout: flagValues.segmentIdle,
-		Throttle:           flagValues.throttle,
-		Attempts:           flagValues.attempts,
-		ClipRetention:      flagValues.clipRetention,
-		PlaylistRetention:  flagValues.playlistRet,
-		JanitorInterval:    flagValues.janitor,
-		UseHttps:           flagValues.https,
-		DecryptSegments:    flagValues.decrypt,
-		Host:               flagValues.host,
-		Port:               flagValues.port,
-		LogLevel:           flagValues.logLevel,
-		Healthcheck:        flagValues.healthcheck,
+		Prefetch:                   flagValues.prefetch,
+		SegmentCount:               flagValues.segments,
+		SegmentStore:               flagValues.segmentStore,
+		SegmentCache:               flagValues.segmentCache,
+		SegmentStorageDir:          flagValues.segmentDir,
+		SegmentIdleEnabled:         flagValues.segmentIdleEnabled,
+		SegmentIdleTimeout:         flagValues.segmentIdle,
+		SegmentIdleRequireSegments: flagValues.segmentIdleRequireSegments,
+		SegmentBackgroundFetch:     flagValues.segmentBackgroundFetch,
+		Throttle:                   flagValues.throttle,
+		Attempts:                   flagValues.attempts,
+		ClipRetention:              flagValues.clipRetention,
+		PlaylistRetention:          flagValues.playlistRet,
+		JanitorInterval:            flagValues.janitor,
+		UseHttps:                   flagValues.https,
+		DecryptSegments:            flagValues.decrypt,
+		Host:                       flagValues.host,
+		Port:                       flagValues.port,
+		LogLevel:                   flagValues.logLevel,
+		Healthcheck:                flagValues.healthcheck,
 	}
 
 	model.InitializeConfig(options)

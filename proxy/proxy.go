@@ -36,6 +36,9 @@ func InitPrefetcher(c *model.Config) {
 	if c.SegmentCache {
 		log.Infof("In-memory segment cache enabled with limit %d", c.SegmentCount)
 	}
+	if c.SegmentBackgroundFetch {
+		log.Info("Background segment fetch enabled; manifests will trigger proactive downloads")
+	}
 	if c.SegmentIdleEnabled && c.SegmentIdleTimeout > 0 {
 		hls.StartManifestInactivityJanitor(preFetcher, c.SegmentIdleTimeout)
 	} else {
@@ -92,6 +95,7 @@ func TsProxy(c echo.Context, input *model.Input) error {
 		manifestID = input.Url
 	}
 	hls.TouchManifest(manifestID)
+	hls.RecordSegmentRequest(manifestID)
 
 	//check if we have the ts file in cache
 

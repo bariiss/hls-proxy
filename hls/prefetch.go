@@ -206,18 +206,67 @@ func (p Prefetcher) prefetchClips(clipUrl string, playlistId string) error {
 
 	playlist := playlistItem.Data
 	nextClips := playlist.getNextPrefetchClips(clipUrl, p.clipPrefetchCount)
+	p.queueClipsForPrefetch(playlist, nextClips)
+	return nil
+}
 
-	throttle := time.NewTicker(time.Second / time.Duration(model.Configuration.Throttle))
-	defer throttle.Stop()
-	for _, clip := range nextClips {
-		//if we are already in the process of fetching the clip, or we already have it cached, skip it
+func (p *Prefetcher) WarmPlaylist(playlistId string) {
+	if p == nil || playlistId == "" {
+		return
+	}
+
+	playlistItem, ok := p.playlistInfo.Get(playlistId)
+	if !ok {
+		return
+	}
+
+	playlist := playlistItem.Data
+	if playlist == nil {
+		return
+	}
+
+	limit := p.clipPrefetchCount
+	if limit <= 0 || limit > len(playlist.playlistClips) {
+		limit = len(playlist.playlistClips)
+	}
+	if limit == 0 {
+		return
+	}
+
+	clips := append([]string(nil), playlist.playlistClips[:limit]...)
+	go p.queueClipsForPrefetch(playlist, clips)
+}
+
+func (p *Prefetcher) queueClipsForPrefetch(playlist *PrefetchPlaylist, clips []string) {
+	if p == nil || playlist == nil || len(clips) == 0 {
+		return
+	}
+
+	throttleRate := model.Configuration.Throttle
+	if throttleRate <= 0 {
+		throttleRate = 1
+	}
+
+	interval := time.Second / time.Duration(throttleRate)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	first := true
+	for _, clip := range clips {
+		if clip == "" {
+			continue
+		}
 		if p.currentlyPrefetching.Contains(clip) || playlist.fetchedClips.Has(clip) {
 			continue
 		}
 
-		p.currentlyPrefetching.Add(clip)
-		<-throttle.C
+		if !first {
+			<-ticker.C
+		} else {
+			first = false
+		}
 
+		p.currentlyPrefetching.Add(clip)
 		go func(clip string) {
 			defer p.currentlyPrefetching.Remove(clip)
 
@@ -233,11 +282,10 @@ func (p Prefetcher) prefetchClips(clipUrl string, playlistId string) error {
 				return
 			}
 
+			RecordSegmentRequest(playlist.playlistId)
 			log.Debug("Number of cached clips", playlist.fetchedClips.Count())
 		}(clip)
 	}
-
-	return nil
 }
 
 func fetchClip(clipUrl string) ([]byte, error) {
